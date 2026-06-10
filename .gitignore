@@ -1,0 +1,33 @@
+# Rust / Tauri build artifacts
+target/
+src-tauri/target/
+
+# Frontend build output
+frontend/dist/
+frontend/node_modules/
+
+# Tauri generated files (auto-created on first build)
+src-tauri/gen/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor files
+.idea/
+.vscode/settings.json
+*.swp
+*.swo
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# Temporary ClipMind output files
+/tmp/clipmind/

@@ -1,0 +1,113 @@
+name: Release ClipMind Pro
+
+# Trigger: push a version tag like v1.2.3
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-release:
+    permissions:
+      contents: write   # needed to create GitHub Releases and upload assets
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS — Apple Silicon
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            args: --target aarch64-apple-darwin
+
+          # macOS — Intel
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            args: --target x86_64-apple-darwin
+
+          # Windows
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            args: ''
+
+          # Linux
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            args: ''
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      # ── Checkout ─────────────────────────────────────────────────────────
+      - uses: actions/checkout@v4
+
+      # ── Rust toolchain ───────────────────────────────────────────────────
+      - name: Install Rust stable + target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust build artefacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      # ── Linux system deps (WebKit, GTK, etc.) ────────────────────────────
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            pkg-config
+
+      # ── Node.js ──────────────────────────────────────────────────────────
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # ── Build & Release ───────────────────────────────────────────────────
+      # tauri-action compiles the Rust core, bundles the frontend,
+      # and uploads platform installers to the GitHub Release it creates.
+      - name: Build and publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Updater signing — generate with: cargo tauri signer generate
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'ClipMind Pro ${{ github.ref_name }}'
+          releaseBody: |
+            ## What's New
+            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for full details.
+
+            ## Download
+            | Platform | Installer |
+            |---|---|
+            | Windows | `.msi` (recommended) or `.exe` (NSIS) |
+            | macOS Intel | `.dmg` |
+            | macOS Apple Silicon | `.dmg` |
+            | Linux | `.AppImage` or `.deb` |
+          releaseDraft: true
+          prerelease: false
+          projectPath: '.'
+          tauriScript: 'npx tauri'
+          args: ${{ matrix.args }}
